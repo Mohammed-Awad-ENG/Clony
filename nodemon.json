@@ -1,0 +1,8 @@
+{
+  "ignore": [
+    "clones/**",
+    "data/**",
+    "node_modules/**",
+    "src/**"
+  ]
+}

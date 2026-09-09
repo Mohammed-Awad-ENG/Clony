@@ -1,0 +1,18 @@
+html[dir="rtl"] {
+  /* RTL overrides */
+}
+
+html[dir="rtl"] .ml-auto {
+  margin-right: auto !important;
+  margin-left: 0 !important;
+}
+
+html[dir="rtl"] .mr-2 {
+  margin-left: 0.5rem !important;
+  margin-right: 0 !important;
+}
+
+html[dir="rtl"] .pl-4 {
+  padding-right: 1rem !important;
+  padding-left: 0 !important;
+}

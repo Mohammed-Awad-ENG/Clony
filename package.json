@@ -1,0 +1,42 @@
+{
+  "name": "clony",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev:frontend": "vite",
+    "dev:backend": "nodemon server/index.js",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "file-type": "^22.0.2",
+    "mime-types": "^3.0.2",
+    "nanoid": "^6.0.1",
+    "normalize-url": "^9.0.1",
+    "parse-srcset": "^1.0.2",
+    "playwright": "^1.63.0",
+    "postcss": "^8.5.28",
+    "postcss-url": "^10.1.4",
+    "prettier": "^3.9.6",
+    "robots-parser": "^3.0.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "adm-zip": "^0.6.0",
+    "concurrently": "^10.0.5",
+    "nodemon": "^3.1.14",
+    "socket.io-client": "^4.8.3",
+    "vite": "^8.2.2"
+  },
+  "type": "module"
+}
