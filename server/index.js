@@ -51,8 +51,9 @@ app.use((req, res, next) => {
 // Catch absolute asset requests from cloned iframes (like Next.js /_next/ or absolute /images/)
 app.use((req, res, next) => {
   const referer = req.headers.referer;
-  if (referer && !req.path.startsWith('/api/')) {
-    const match = referer.match(/\/api\/preview\/([a-f0-9\-]+)/);
+  // Guard against redirect loops or redirecting API calls
+  if (referer && !req.path.startsWith('/api/') && !req.originalUrl.startsWith('/api/preview/')) {
+    const match = referer.match(/\/api\/preview\/([a-f0-9\-]+)\//);
     if (match) {
       const uuid = match[1];
       return res.redirect(`/api/preview/${uuid}${req.originalUrl}`);

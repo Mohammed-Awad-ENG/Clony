@@ -47,10 +47,33 @@ export class Crawler {
     
     try {
       await this.processQueue();
+      await this.secondPassLinkRewrite();
     } finally {
       await this.context.close();
       await this.browser.close();
     }
+  }
+
+  async secondPassLinkRewrite() {
+    if (this.urlMap.size === 0) return;
+    console.log(`Starting second-pass link rewrite for ${this.urlMap.size} pages...`);
+    
+    for (const [originalUrl, relativePath] of this.urlMap.entries()) {
+      try {
+        const localHtmlPath = path.join(this.cloneDir, relativePath);
+        if (fs.existsSync(localHtmlPath) && localHtmlPath.endsWith('.html')) {
+          let html = fs.readFileSync(localHtmlPath, 'utf8');
+          // rewriteHtmlLinks handles full map resolution
+          const updatedHtml = rewriteHtmlLinks(html, originalUrl, this.urlMap);
+          if (html !== updatedHtml) {
+            fs.writeFileSync(localHtmlPath, updatedHtml);
+          }
+        }
+      } catch (e) {
+        console.error(`Second-pass rewrite failed for ${relativePath}:`, e.message);
+      }
+    }
+    console.log('Second-pass link rewrite complete.');
   }
 
   async processQueue() {
@@ -150,11 +173,13 @@ export class Crawler {
       await page.evaluate(async () => {
         await new Promise((resolve) => {
           let totalHeight = 0;
+          let scrolls = 0;
           const distance = 400;
           const timer = setInterval(() => {
             window.scrollBy(0, distance);
             totalHeight += distance;
-            if (totalHeight >= document.body.scrollHeight) {
+            scrolls++;
+            if (totalHeight >= document.body.scrollHeight || scrolls >= 50) {
               clearInterval(timer);
               resolve();
             }
@@ -169,6 +194,7 @@ export class Crawler {
       const dynamicCss = await page.evaluate(() => {
         return Array.from(document.styleSheets).map(sheet => {
           try {
+            if (sheet.href) return ''; // Ignore external stylesheets as they are captured via network
             return Array.from(sheet.cssRules).map(r => r.cssText).join('\\n');
           } catch (e) {
             return '';

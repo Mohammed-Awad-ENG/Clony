@@ -45,3 +45,15 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Additional Build and Production Outputs
+.dist/
+out/
+.vercel/
+.netlify/
+.vite/
+coverage/
+.nyc_output/
+tmp/
+temp/
+.eslintcache

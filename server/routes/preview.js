@@ -3,6 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import db from '../db/database.js';
+import { analyzeAndProcessScripts } from '../services/scriptAnalyzer.js';
+import { STATIC_INTERACTIVITY_SCRIPT } from '../services/exports/exportUtils.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,7 +23,7 @@ router.get('/:id/*path', async (req, res) => {
     if (!clone) return res.status(404).send('Clone not found');
 
     // Securely construct path — resolve to get an absolute canonical path
-    const targetPath = path.resolve(clone.directory, clonePath);
+    let targetPath = path.resolve(clone.directory, clonePath);
     
     // Prevent path traversal
     if (!targetPath.startsWith(path.resolve(clone.directory))) {
@@ -29,22 +31,39 @@ router.get('/:id/*path', async (req, res) => {
     }
 
     if (fs.existsSync(targetPath)) {
+      if (fs.statSync(targetPath).isDirectory()) {
+        if (fs.existsSync(path.join(targetPath, 'index.html'))) {
+          targetPath = path.join(targetPath, 'index.html');
+        } else {
+          return res.status(403).send('Directory listing forbidden');
+        }
+      }
       if (targetPath.endsWith('.html')) {
         let html = fs.readFileSync(targetPath, 'utf8');
+        // Run script analysis to strip SPA framework scripts that crash the preview
+        html = analyzeAndProcessScripts(html);
         // Inject SW killer to prevent rogue service workers from serving HTML for 404 missing chunks
-        const swKiller = `<script>
+        // Also inject Clony UI overrides to ensure fixed overlays can be closed on mobile viewports
+        const clonyOverrides = `<script>
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(r) {
               for(let i=0; i<r.length; i++) r[i].unregister();
             });
           }
-        </script>`;
+        </script>
+        <style>
+          /* Clony overrides for preview */
+          button[aria-label*="Dismiss"], button[aria-label*="Close"], button[aria-label*="dismiss"], button[aria-label*="close"] {
+            display: flex !important;
+          }
+        </style>
+        ${STATIC_INTERACTIVITY_SCRIPT}`;
         if (html.includes('<head>')) {
-          html = html.replace('<head>', '<head>' + swKiller);
+          html = html.replace('<head>', '<head>' + clonyOverrides);
         } else {
-          html = swKiller + html;
+          html = clonyOverrides + html;
         }
-        res.set('Content-Type', 'text/html');
+        res.set('Content-Type', 'text/html; charset=utf-8');
         return res.send(html);
       } else {
         return res.sendFile(targetPath);

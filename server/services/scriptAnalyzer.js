@@ -26,6 +26,14 @@ const STRIP_PATTERNS = [
   /window\.onerror\s*=/, /\/httpservice\/retry/,
   // Nonce-based inline Google scripts (error framework)
   /google\.ple/, /google\.aple/,
+  // Next.js RSC flight data & hydration bootstrap (inline scripts)
+  /self\.__next_f/, /__next_f\.push/, /self\.__next_loaded/,
+  /self\.__SSG_MANIFEST/, /self\.__BUILD_MANIFEST/,
+  /self\.__NEXT_DATA__/, /__NEXT_DATA__/,
+  // Nuxt.js hydration
+  /window\.__NUXT__/, /__NUXT_DATA__/,
+  // Remix
+  /window\.__remixContext/,
 ];
 
 const TRACKING_DOMAINS = [
@@ -36,7 +44,13 @@ const TRACKING_DOMAINS = [
 // External script URLs that should be stripped (patterns)
 const STRIP_SRC_PATTERNS = [
   /\/xjs\//, /\/gen_204/, /\/client_204/, /\/log\?/,
-  /\/httpservice\//, /gstatic\.com.*?\/xjs/
+  /\/httpservice\//, /gstatic\.com.*?\/xjs/,
+  // SPA framework hydration scripts — these always crash in cloned previews
+  /\/_next\//, /\/_nuxt\//, /\/__next/,
+  /\/chunks\//, /\/webpack/, /\/static\/chunks\//,
+  /\/static\/js\//, /\/static\/css\//,
+  // Build tool manifests & runtime bootstraps
+  /buildManifest/, /_ssgManifest/, /_buildManifest/,
 ];
 
 export function analyzeAndProcessScripts(html) {
@@ -73,10 +87,29 @@ export function analyzeAndProcessScripts(html) {
     // Neutralize remaining inline scripts by wrapping in try-catch
     if (!src && content.trim()) {
       const type = $(el).attr('type');
-      const isExecutable = !type || /^(text|application)\/(javascript|ecmascript)$/i.test(type) || type === 'module';
-      if (isExecutable) {
+      const isExecutable = !type || /^(text|application)\/(javascript|ecmascript)$/i.test(type);
+      
+      if (type === 'module') {
+        $(el).remove();
+      } else if (isExecutable) {
         $(el).html(`try { ${content} } catch(e) { /* Clony: neutralized */ }`);
       }
+    }
+
+    // Remove remaining external scripts with local/relative src paths
+    // These point to files that likely weren't downloaded and will 404
+    // CDN scripts (absolute http(s) URLs) are kept since they'll still work
+    if (src && !src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('//')) {
+      $(el).remove();
+      return;
+    }
+  });
+
+  // Strip <link> preload/prefetch tags for SPA framework assets (they'll 404 and spam warnings)
+  $('link[rel="preload"], link[rel="prefetch"], link[rel="modulepreload"]').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    if (STRIP_SRC_PATTERNS.some(pattern => pattern.test(href))) {
+      $(el).remove();
     }
   });
 
@@ -130,7 +163,11 @@ export function analyzeAndProcessScripts(html) {
       if (e.message && (
         e.message.includes('_DumpException') || 
         e.message.includes('google is not defined') ||
-        e.message.includes('google.lx')
+        e.message.includes('google.lx') ||
+        e.message.includes('ChunkLoadError') ||
+        e.message.includes('Loading chunk') ||
+        e.message.includes('Loading CSS chunk') ||
+        e.message.includes('Failed to fetch dynamically imported module')
       )) {
         console.warn("Clony: Caught expected cloning error ->", e.message);
         e.preventDefault();
@@ -138,11 +175,15 @@ export function analyzeAndProcessScripts(html) {
     }, true); // true = use capture phase (needed for resource errors)
 
     window.addEventListener('unhandledrejection', function(e) {
-      if (e.reason && e.reason.message && (
-        e.reason.message.includes('_DumpException') ||
-        e.reason.message.includes('google is not defined')
+      const msg = e.reason && (e.reason.message || String(e.reason));
+      if (msg && (
+        msg.includes('_DumpException') ||
+        msg.includes('google is not defined') ||
+        msg.includes('ChunkLoadError') ||
+        msg.includes('Loading chunk') ||
+        msg.includes('Failed to fetch dynamically imported module')
       )) {
-        console.warn("Clony: Caught expected promise rejection ->", e.reason.message);
+        console.warn("Clony: Caught expected promise rejection ->", msg);
         e.preventDefault();
       }
     });

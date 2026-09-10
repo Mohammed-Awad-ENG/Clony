@@ -213,7 +213,7 @@ export function rewriteHtmlPaths(html, pathMapping, pageLocalPath, liveUrl) {
   const $ = cheerio.load(html);
   const pageDir = path.dirname('/' + pageLocalPath);
 
-  function getNewRelative(oldVal) {
+  function getNewRelative(oldVal, isAnchor = false) {
     // Determine the absolute path first based on the current page
     let absPath;
     try {
@@ -238,8 +238,8 @@ export function rewriteHtmlPaths(html, pathMapping, pageLocalPath, liveUrl) {
     }
     
     // Live URL Fallback: if not found in pathMapping and it's an absolute path,
-    // point it to the original live website to prevent local file:/// errors
-    if (liveUrl && oldVal.startsWith('/')) {
+    // point it to the original live website to prevent local file:/// errors (skip for anchor tags to preserve internal routing)
+    if (liveUrl && oldVal.startsWith('/') && !isAnchor) {
       try {
         return new URL(oldVal, liveUrl).href;
       } catch (e) {
@@ -251,9 +251,10 @@ export function rewriteHtmlPaths(html, pathMapping, pageLocalPath, liveUrl) {
   }
 
   $('[href]').each((_, el) => {
+    const isAnchor = el.tagName === 'a' || el.tagName === 'A';
     const href = $(el).attr('href');
     if (href && !href.startsWith('http') && !href.startsWith('data:')) {
-      $(el).attr('href', getNewRelative(href));
+      $(el).attr('href', getNewRelative(href, isAnchor));
     }
   });
 
@@ -309,6 +310,30 @@ export const STATIC_INTERACTIVITY_SCRIPT = `
 <script>
   /* Clony: Generic interactivity for static exports (popup dismissal) */
   document.addEventListener('DOMContentLoaded', () => {
+    
+    function cleanupModal(target) {
+      target.style.display = 'none';
+      
+      // Stop any media playing inside the dismissed container
+      const mediaElements = target.querySelectorAll('video, audio');
+      mediaElements.forEach(media => {
+        if (typeof media.pause === 'function') media.pause();
+      });
+      const iframes = target.querySelectorAll('iframe');
+      iframes.forEach(iframe => {
+        const src = iframe.src;
+        iframe.src = src; // Reload iframe to stop playing media
+      });
+      
+      // Restore body scrolling if it was locked by the modal
+      if (document.body.style.overflow === 'hidden' || document.body.style.position === 'fixed') {
+        document.body.style.overflow = '';
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.width = '';
+      }
+    }
+
     document.addEventListener('click', function(e) {
       let target = e.target;
       
@@ -322,7 +347,7 @@ export const STATIC_INTERACTIVITY_SCRIPT = `
         ) {
            // If click was exactly on the backdrop (not on its modal children)
            if (e.target === target) {
-              target.style.display = 'none';
+              cleanupModal(target);
               return;
            }
         }
@@ -335,7 +360,7 @@ export const STATIC_INTERACTIVITY_SCRIPT = `
         }
         
         const isButton = target.tagName === 'BUTTON' || target.getAttribute('role') === 'button';
-        const text = target.textContent.trim().toLowerCase();
+        const text = (target.textContent || '').trim().toLowerCase();
         const ariaLabel = (target.getAttribute('aria-label') || '').toLowerCase();
         const className = (typeof target.className === 'string' ? target.className : '').toLowerCase();
         
@@ -373,7 +398,8 @@ export const STATIC_INTERACTIVITY_SCRIPT = `
           }
           
           if (containerToHide) {
-            containerToHide.style.display = 'none';
+            cleanupModal(containerToHide);
+            
             e.preventDefault();
             e.stopPropagation();
             return;
@@ -385,6 +411,68 @@ export const STATIC_INTERACTIVITY_SCRIPT = `
   });
 </script>
 `;
+
+/**
+ * Rewrites internal links to SPA route paths for React/Next.js/Vue exports.
+ * E.g. ../about/index.html -> /about
+ */
+export function rewriteLinksToRoutes(html, pageLocalPath) {
+  const $ = cheerio.load(html);
+  const pageDir = path.dirname('/' + pageLocalPath.replace(/\\/g, '/'));
+
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (
+      !href ||
+      href.startsWith('http') ||
+      href.startsWith('//') ||
+      href.startsWith('data:') ||
+      href.startsWith('#') ||
+      href.startsWith('mailto:') ||
+      href.startsWith('tel:')
+    ) {
+      return;
+    }
+
+    let target = href;
+    const hashParts = target.split('#');
+    target = hashParts[0];
+    const queryParts = target.split('?');
+    target = queryParts[0];
+
+    if (!target) return;
+
+    // Resolve to absolute path based on page dir
+    if (!target.startsWith('/')) {
+      target = path.posix.resolve(pageDir, target);
+    }
+
+    let routePath = target;
+    if (routePath.endsWith('/index.html')) {
+      routePath = routePath.slice(0, -11);
+    } else if (routePath.endsWith('.html')) {
+      routePath = routePath.slice(0, -5);
+    }
+    
+    if (routePath.endsWith('/') && routePath.length > 1) {
+      routePath = routePath.slice(0, -1);
+    }
+    
+    // Ensure it's absolute for SPA routing
+    if (!routePath.startsWith('/')) {
+      routePath = '/' + routePath;
+    }
+    if (routePath === '') routePath = '/';
+
+    let rel = routePath;
+    if (queryParts.length > 1) rel += '?' + queryParts[1];
+    if (hashParts.length > 1) rel += '#' + hashParts[1];
+
+    $(el).attr('href', rel);
+  });
+
+  return $.html();
+}
 
 /**
  * Rewrites internal links (e.g. /about) to relative .html paths (e.g. ../about/index.html)

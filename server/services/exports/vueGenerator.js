@@ -7,6 +7,7 @@ import {
   rewriteHtmlPaths, 
   mergeCss, 
   formatWithPrettier,
+  rewriteLinksToRoutes,
   STATIC_INTERACTIVITY_SCRIPT
 } from './exportUtils.js';
 
@@ -63,6 +64,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
 
     let bodyHtml = $('body').html() || '';
     bodyHtml = rewriteHtmlPaths(bodyHtml, vuePathMapping, page.local_path, cloneRecord.url);
+    bodyHtml = rewriteLinksToRoutes(bodyHtml, page.local_path);
 
     const componentName = `Page${pageCounter++}`;
     let routePath = '/' + page.local_path.replace(/\\/g, '/').replace(/index\.html$/, '').replace(/\.html$/, '');
@@ -71,7 +73,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
     }
     if (!routePath.startsWith('/')) routePath = '/' + routePath;
 
-    let vueComponent = `<template>\n  <div class="clony-page">\n    ${bodyHtml}\n  </div>\n</template>\n\n`;
+    let vueComponent = `<template>\n  <div class="clony-page" v-pre>\n    ${bodyHtml}\n  </div>\n</template>\n\n`;
     
     if (extractedScripts.trim()) {
       vueComponent += `<script setup>

@@ -7,6 +7,7 @@ import {
   rewriteHtmlPaths, 
   mergeCss, 
   formatWithPrettier,
+  rewriteLinksToRoutes,
   STATIC_INTERACTIVITY_SCRIPT
 } from './exportUtils.js';
 import { htmlToJsx } from './htmlToJsx.js';
@@ -56,6 +57,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
 
     let bodyHtml = $('body').html() || '';
     bodyHtml = rewriteHtmlPaths(bodyHtml, nextPathMapping, page.local_path, cloneRecord.url);
+    bodyHtml = rewriteLinksToRoutes(bodyHtml, page.local_path);
 
     const jsxContent = htmlToJsx(bodyHtml);
 
