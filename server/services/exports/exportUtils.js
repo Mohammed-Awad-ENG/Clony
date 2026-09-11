@@ -531,11 +531,73 @@ export function rewriteInternalLinks(html, pageLocalPath) {
 }
 
 /**
+ * Extracts and bundles only the stylesheets and inline styles referenced by a specific page.
+ * Prevents cross-page stylesheet pollution and layer conflicts.
+ */
+export function extractPageCss(sourceDir, page, pathMapping, options = {}, assets = []) {
+  const targetCssPath = options.targetCssPath || 'src/assets/styles.css';
+  const rootRelative = options.rootRelative !== false;
+  let pageCss = '';
+
+  const srcPath = path.join(sourceDir, page.local_path);
+  if (!fs.existsSync(srcPath)) return '';
+
+  const html = fs.readFileSync(srcPath, 'utf8');
+  const $ = cheerio.load(html);
+  const pageDir = path.dirname('/' + page.local_path.replace(/\\/g, '/'));
+
+  // 1. Extract linked stylesheets in document order
+  $('link[rel="stylesheet"]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (!href || href.startsWith('http://') || href.startsWith('https://') || href.startsWith('data:')) return;
+
+    const cleanHref = href.split('?')[0].split('#')[0];
+    let assetRelPath;
+    if (cleanHref.startsWith('/')) {
+      assetRelPath = cleanHref.replace(/^\//, '');
+    } else {
+      const absPath = path.posix.resolve(pageDir, cleanHref);
+      assetRelPath = absPath.replace(/^\//, '');
+    }
+
+    let diskPath = path.join(sourceDir, assetRelPath);
+    if (!fs.existsSync(diskPath) && assets.length > 0) {
+      const base = path.basename(cleanHref);
+      const matchedAsset = assets.find(a => path.basename(a.local_path) === base || a.original_url === href);
+      if (matchedAsset) {
+        diskPath = path.join(sourceDir, matchedAsset.local_path);
+        assetRelPath = matchedAsset.local_path;
+      }
+    }
+
+    if (fs.existsSync(diskPath)) {
+      let content = fs.readFileSync(diskPath, 'utf8');
+      content = rewriteCssUrls(content, pathMapping, targetCssPath, assetRelPath, { rootRelative });
+      pageCss += `\n/* Linked stylesheet: ${href} */\n${content}\n`;
+    }
+  });
+
+  // 2. Extract inline <style> blocks in document order
+  $('style').each((_, el) => {
+    let content = $(el).html();
+    if (content && content.trim()) {
+      content = content.replace(/\\n/g, '\n');
+      content = rewriteCssUrls(content, pathMapping, targetCssPath, page.local_path, { rootRelative });
+      pageCss += `\n/* Inline style from ${page.local_path} */\n${content}\n`;
+    }
+  });
+
+  return pageCss;
+}
+
+/**
  * Merges all CSS strings (both files and inline) into one string, rewriting paths.
  * Resolves paths relative to a target CSS file (e.g. css/styles.css)
  */
-export function mergeCss(sourceDir, assets, htmlPages, pathMapping) {
+export function mergeCss(sourceDir, assets, htmlPages, pathMapping, options = {}) {
   let mergedCss = '';
+  const targetCssPath = options.targetCssPath || 'css/styles.css';
+  const rootRelative = options.rootRelative;
 
   // 1. Process external CSS files from assets
   const cssAssets = assets.filter(a => getAssetCategory(a) === 'css');
@@ -543,7 +605,7 @@ export function mergeCss(sourceDir, assets, htmlPages, pathMapping) {
     const srcPath = path.join(sourceDir, asset.local_path);
     if (fs.existsSync(srcPath)) {
       let cssContent = fs.readFileSync(srcPath, 'utf8');
-      cssContent = rewriteCssUrls(cssContent, pathMapping, 'css/styles.css', asset.local_path);
+      cssContent = rewriteCssUrls(cssContent, pathMapping, targetCssPath, asset.local_path, { rootRelative });
       mergedCss += `\n/* Source: ${asset.original_url} */\n${cssContent}\n`;
     }
   }
@@ -559,7 +621,7 @@ export function mergeCss(sourceDir, assets, htmlPages, pathMapping) {
         if (cssContent && cssContent.trim()) {
           // Cheerio may return literal \n text — normalize to actual newlines
           cssContent = cssContent.replace(/\\n/g, '\n');
-          cssContent = rewriteCssUrls(cssContent, pathMapping, 'css/styles.css', page.local_path);
+          cssContent = rewriteCssUrls(cssContent, pathMapping, targetCssPath, page.local_path, { rootRelative });
           mergedCss += `\n/* Inline style from ${page.local_path} */\n${cssContent}\n`;
         }
       });
@@ -575,20 +637,32 @@ export function mergeCss(sourceDir, assets, htmlPages, pathMapping) {
  * @param {Map} pathMapping The map of old to new paths (e.g. _assets/1.png -> images/logo.png).
  * @param {string} targetCssPath Where this CSS will live in the output (e.g. css/styles.css).
  * @param {string} originalSourcePath The local path where the CSS originally lived (e.g. _assets/2.css or index.html).
+ * @param {object} options Optional settings such as { rootRelative: boolean }.
  */
-export function rewriteCssUrls(cssContent, pathMapping, targetCssPath, originalSourcePath) {
+export function rewriteCssUrls(cssContent, pathMapping, targetCssPath, originalSourcePath, options = {}) {
+  if (!cssContent) return '';
   return cssContent.replace(/url\(['"]?([^'"()]+)['"]?\)/g, (match, url) => {
-    if (url.startsWith('data:') || url.startsWith('http')) return match;
+    if (url.startsWith('data:') || url.startsWith('http') || url.startsWith('blob:')) return match;
     
     // Resolve original absolute path within clone directory
-    const sourceDir = path.dirname('/' + originalSourcePath);
+    const sourceDir = path.dirname('/' + originalSourcePath.replace(/\\/g, '/'));
     const absPath = path.posix.resolve(sourceDir, url);
     const canonical = absPath.replace(/^\//, ''); // e.g. _assets/123.png
     
     if (pathMapping.has(canonical)) {
-      const newCanonical = pathMapping.get(canonical); // e.g. images/logo.png
-      const targetDir = path.dirname('/' + targetCssPath); // e.g. /css
+      const newCanonical = pathMapping.get(canonical); // e.g. images/logo.png or fonts/font.woff2
       
+      // If rootRelative is requested, or targetCssPath is in src/ or root-relative,
+      // or if it is a font asset in public/fonts/:
+      if (
+        options.rootRelative ||
+        newCanonical.startsWith('fonts/') ||
+        (typeof targetCssPath === 'string' && (targetCssPath.startsWith('/') || targetCssPath.startsWith('src/')))
+      ) {
+        return `url('/${newCanonical.replace(/^\//, '')}')`;
+      }
+
+      const targetDir = path.dirname('/' + targetCssPath); // e.g. /css
       let rel = path.posix.relative(targetDir, '/' + newCanonical);
       return `url('${rel}')`;
     }
