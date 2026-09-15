@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import db from '../db/database.js';
 import { analyzeAndProcessScripts } from '../services/scriptAnalyzer.js';
-import { STATIC_INTERACTIVITY_SCRIPT } from '../services/exports/exportUtils.js';
+import { STATIC_INTERACTIVITY_SCRIPT, UNIVERSAL_STUBS_SCRIPT } from '../services/exports/exportUtils.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -59,9 +59,9 @@ router.get('/:id/*path', async (req, res) => {
         </style>
         ${STATIC_INTERACTIVITY_SCRIPT}`;
         if (html.includes('<head>')) {
-          html = html.replace('<head>', '<head>' + clonyOverrides);
+          html = html.replace('<head>', '<head>\n' + UNIVERSAL_STUBS_SCRIPT + '\n' + clonyOverrides);
         } else {
-          html = clonyOverrides + html;
+          html = UNIVERSAL_STUBS_SCRIPT + '\n' + clonyOverrides + html;
         }
         res.set('Content-Type', 'text/html; charset=utf-8');
         return res.send(html);

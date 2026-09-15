@@ -182,6 +182,67 @@ export function generateRoutes(pages) {
 }
 
 /**
+ * Generates a floating UI component to navigate between exported routes.
+ */
+export function generateRouteNavigatorScript(routes, type = 'spa') {
+  if (!routes || routes.length === 0) return '';
+  
+  const linksHtml = routes.map(r => {
+    let href = r.path;
+    if (type === 'html') {
+      href = '/' + r.originalPath.replace(/\\/g, '/');
+    }
+    return `
+      <a href="${href}" class="clony-nav-link" style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: #e2e8f0; text-decoration: none; border-radius: 6px; transition: background 0.2s; font-size: 14px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        ${r.componentName || r.path}
+      </a>
+    `;
+  }).join('');
+
+  return `
+<!-- CLONY ROUTE NAVIGATOR START (EASILY REMOVABLE) -->
+<div id="clony-route-navigator" style="position: fixed; bottom: 20px; right: 20px; z-index: 999999; font-family: system-ui, -apple-system, sans-serif;">
+  <div id="clony-nav-menu" style="display: none; position: absolute; bottom: 60px; right: 0; width: 280px; max-height: 400px; overflow-y: auto; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+    <div style="padding: 8px 12px; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; align-items: center;">
+      <span>Exported Pages</span>
+      <span style="background: rgba(6, 214, 160, 0.2); color: #06d6a0; padding: 2px 6px; border-radius: 10px; font-size: 10px;">${routes.length}</span>
+    </div>
+    <style>
+      .clony-nav-link:hover { background: rgba(255, 255, 255, 0.1); }
+      #clony-nav-menu::-webkit-scrollbar { width: 6px; }
+      #clony-nav-menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    </style>
+    ${linksHtml}
+  </div>
+  <button id="clony-nav-toggle" style="width: 48px; height: 48px; border-radius: 50%; background: #06d6a0; color: #000; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(6, 214, 160, 0.4); transition: transform 0.2s;">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+  </button>
+</div>
+<script>
+  (function() {
+    var toggle = document.getElementById('clony-nav-toggle');
+    var menu = document.getElementById('clony-nav-menu');
+    var isOpen = false;
+    toggle.addEventListener('click', function() {
+      isOpen = !isOpen;
+      menu.style.display = isOpen ? 'block' : 'none';
+      toggle.style.transform = isOpen ? 'rotate(90deg)' : 'none';
+    });
+    document.addEventListener('click', function(e) {
+      if (isOpen && !document.getElementById('clony-route-navigator').contains(e.target)) {
+        isOpen = false;
+        menu.style.display = 'none';
+        toggle.style.transform = 'none';
+      }
+    });
+  })();
+</script>
+<!-- CLONY ROUTE NAVIGATOR END -->
+  `;
+}
+
+/**
  * Format code with Prettier safely.
  */
 export async function formatWithPrettier(content, parser) {
@@ -409,6 +470,82 @@ export const STATIC_INTERACTIVITY_SCRIPT = `
       }
     });
   });
+</script>
+`;
+
+export const UNIVERSAL_STUBS_SCRIPT = `
+<script>
+  /* Clony: Universal Polyfills and Neutralization Stubs */
+  (function() {
+    // 1. Global stubs for Google internal APIs to prevent common "not a function" errors
+    window._ = window._ || {};
+    _._DumpException = function(e){ console.warn("Clony: Suppressed Google _DumpException ->", e); };
+    window.google = window.google || {};
+    window.google.log = function(){};
+    window.google.ml = function(){ return null; };
+    window.google.logUrl = function(){ return ''; };
+    window.google.lx = function(){};
+
+    // 2. Stub missing performance API in sandboxed iframes (fixes Next.js web vitals 'startTime' crash)
+    if (window.performance && typeof window.performance.getEntriesByType === 'function') {
+      const origGetEntries = window.performance.getEntriesByType.bind(window.performance);
+      window.performance.getEntriesByType = function(type) {
+        const entries = origGetEntries(type);
+        if (type === 'navigation' && entries.length === 0) {
+          return [{ startTime: 0, responseStart: 0, responseEnd: 0, domInteractive: 0, domContentLoadedEventEnd: 0, loadEventEnd: 0, type: 'navigate' }];
+        }
+        return entries;
+      };
+    }
+
+    // 3. Custom Error Handler for Clony (catches known cloning errors)
+    window.addEventListener('error', function(e) {
+      const target = e.target || e.srcElement;
+      if (target && (target.tagName === 'SCRIPT' || target.tagName === 'IMG' || target.tagName === 'LINK')) {
+        const src = target.src || target.href;
+        if (src && (
+          src.includes('google-analytics.com') ||
+          src.includes('googletagmanager.com') ||
+          src.includes('fonts.googleapis.com') ||
+          src.includes('_next/') ||
+          src.includes('_assets/') ||
+          src.includes('cdn-cgi/') ||
+          src.includes('.woff')
+        )) {
+          e.preventDefault();
+          return;
+        }
+      }
+      if (e.message && (
+        e.message.includes('_DumpException') || 
+        e.message.includes('google is not defined') ||
+        e.message.includes('google.lx') ||
+        e.message.includes('Mismatching childNodes')
+      )) {
+        e.preventDefault();
+      }
+    }, true);
+
+    window.addEventListener('unhandledrejection', function(e) {
+      if (e.reason && e.reason.message && (
+        e.reason.message.includes('_DumpException') ||
+        e.reason.message.includes('google is not defined') ||
+        e.reason.message.includes('fetch')
+      )) {
+        e.preventDefault();
+      }
+    });
+
+    // 4. Intercept fetch requests for telemetry
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+      const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+      if (url.includes('/gen_204') || url.includes('/client_204') || url.includes('/httpservice/retry') || url.includes('google-analytics.com')) {
+        return new Response('', { status: 200, statusText: 'OK' });
+      }
+      return originalFetch.apply(this, args);
+    };
+  })();
 </script>
 `;
 

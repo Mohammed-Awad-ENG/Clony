@@ -8,7 +8,9 @@ import {
   mergeCss, 
   formatWithPrettier,
   rewriteLinksToRoutes,
-  STATIC_INTERACTIVITY_SCRIPT
+  STATIC_INTERACTIVITY_SCRIPT,
+  UNIVERSAL_STUBS_SCRIPT,
+  generateRouteNavigatorScript
 } from './exportUtils.js';
 
 export async function generate(sourceDir, outputDir, cloneRecord, pages, assets) {
@@ -48,6 +50,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
 
     $('link[rel="stylesheet"]').remove();
     $('style').remove();
+    $('template').remove(); // Remove Next.js RSC streaming placeholders
 
     // Extract inline scripts
     let extractedScripts = '';
@@ -136,17 +139,20 @@ app.mount('#app')
 `);
 
   // 7. Generate index.html
+  const routeNavigatorHTML = generateRouteNavigatorScript(routes, 'spa');
   fs.writeFileSync(path.join(outputDir, 'index.html'), `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${cloneRecord.domain}</title>
+    ${UNIVERSAL_STUBS_SCRIPT}
   </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
     ${STATIC_INTERACTIVITY_SCRIPT}
+    ${routeNavigatorHTML}
   </body>
 </html>
 `);

@@ -8,7 +8,9 @@ import {
   mergeCss, 
   formatWithPrettier,
   rewriteLinksToRoutes,
-  STATIC_INTERACTIVITY_SCRIPT
+  STATIC_INTERACTIVITY_SCRIPT,
+  UNIVERSAL_STUBS_SCRIPT,
+  generateRouteNavigatorScript
 } from './exportUtils.js';
 import { htmlToJsx } from './htmlToJsx.js';
 
@@ -43,6 +45,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
 
     $('link[rel="stylesheet"]').remove();
     $('style').remove();
+    $('template').remove(); // Remove Next.js RSC streaming placeholders
 
     let extractedScripts = '';
     $('script').each((_, el) => {
@@ -80,7 +83,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
       nextComponent += `  useEffect(() => {
     try {
       /* Extracted inline scripts */
-      ${extractedScripts.replace(/<\/script>/gi, '<\\/script>')}
+      ${extractedScripts.replace(/<\/script>/gi, '<\/script>')}
     } catch(e) {
       console.error("Clony: Error running inline script", e);
     }
@@ -100,6 +103,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
 
   // 4. Generate layout.jsx
   const rawScript = STATIC_INTERACTIVITY_SCRIPT.replace(/<script>|<\/script>/g, '').trim();
+  const routeNavigatorHTML = generateRouteNavigatorScript(routes, 'spa');
   
   const layoutCode = `import './globals.css'
 
@@ -112,8 +116,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
+        <script dangerouslySetInnerHTML={{ __html: \`${UNIVERSAL_STUBS_SCRIPT.replace(/<script>|<\/script>/gi, '').trim().replace(/`/g, '\\`').replace(/\\$/g, '\\\\$')}\` }} />
         {children}
-        <script dangerouslySetInnerHTML={{ __html: \`${rawScript.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />
+        <script dangerouslySetInnerHTML={{ __html: \`${rawScript.replace(/`/g, '\\`').replace(/\\$/g, '\\\\$')}\` }} />
+        <div dangerouslySetInnerHTML={{ __html: \`${routeNavigatorHTML.replace(/`/g, '\\`').replace(/\\$/g, '\\\\$')}\` }} />
       </body>
     </html>
   )

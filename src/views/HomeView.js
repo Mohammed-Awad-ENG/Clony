@@ -48,6 +48,11 @@ export default class HomeView {
                 <input type="number" id="opt-delay" class="form-control" value="1000" min="0">
               </div>
               
+              <div class="form-group">
+                <label>Hydration Timeout (seconds)</label>
+                <input type="number" id="opt-wait" class="form-control" value="15" min="0">
+              </div>
+              
               <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
                 <input type="checkbox" id="opt-robots" checked>
                 <label for="opt-robots" style="margin: 0;" data-i18n="opt_robots">${t('opt_robots')}</label>
@@ -76,11 +81,13 @@ export default class HomeView {
       const depthVal = this.container.querySelector('#opt-depth').value;
       const maxPages = parseInt(this.container.querySelector('#opt-max-pages').value, 10);
       const rateLimitMs = parseInt(this.container.querySelector('#opt-delay').value, 10);
+      const waitPeriodSecs = parseInt(this.container.querySelector('#opt-wait').value, 10);
       const respectRobots = this.container.querySelector('#opt-robots').checked;
       
       const options = {
         maxPages: isNaN(maxPages) ? 500 : maxPages,
         rateLimitMs: isNaN(rateLimitMs) ? 1000 : rateLimitMs,
+        waitPeriod: (isNaN(waitPeriodSecs) ? 15 : waitPeriodSecs) * 1000,
         respectRobots
       };
       

@@ -6,15 +6,20 @@ import {
   copyAssetsOrganized, 
   rewriteHtmlPaths, 
   mergeCss, 
+  extractPageCss,
   formatWithPrettier,
   rewriteInternalLinks,
-  STATIC_INTERACTIVITY_SCRIPT
+  STATIC_INTERACTIVITY_SCRIPT,
+  UNIVERSAL_STUBS_SCRIPT,
+  generateRouteNavigatorScript,
+  generateRoutes
 } from './exportUtils.js';
 
 export async function generate(sourceDir, outputDir, cloneRecord, pages, assets) {
   // 1. Build rename map and copy assets
   const renameMap = buildAssetRenameMap(assets);
   const pathMapping = copyAssetsOrganized(sourceDir, outputDir, assets, renameMap);
+  const routes = generateRoutes(pages);
   
   // 2. Merge CSS
   const mergedCss = mergeCss(sourceDir, assets, pages, pathMapping);
@@ -34,6 +39,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
     // Remove existing stylesheets and inline styles
     $('link[rel="stylesheet"]').remove();
     $('style').remove();
+    $('template').remove(); // Remove Next.js RSC streaming placeholders
 
     // Remove executable scripts to prevent SPA hydration crashes on static HTML exports
     $('script').each((_, el) => {
@@ -49,9 +55,13 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
     let relativeCssPath = path.posix.relative(pageDir, '/css/styles.css');
     if (relativeCssPath === '') relativeCssPath = 'styles.css';
 
-    // Inject our merged stylesheet and interactivity script
+    const routeNavigatorHTML = generateRouteNavigatorScript(routes, 'html');
+
+    // Inject our merged stylesheet, interactivity script, and navigator
+    $('head').prepend(UNIVERSAL_STUBS_SCRIPT);
     $('head').append(`\n  <link rel="stylesheet" href="${relativeCssPath}">\n`);
     $('body').append(STATIC_INTERACTIVITY_SCRIPT);
+    $('body').append(routeNavigatorHTML);
 
     html = $.html();
     html = rewriteHtmlPaths(html, pathMapping, page.local_path.replace(/\\/g, '/'), cloneRecord.url);

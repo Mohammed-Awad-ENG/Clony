@@ -35,23 +35,67 @@ const VOID_ELEMENTS = new Set([
 
 function parseStyle(styleStr) {
   const styles = {};
-  const rules = styleStr.split(';');
-  for (const rule of rules) {
-    const colonIndex = rule.indexOf(':');
-    if (colonIndex > -1) {
-      const key = rule.slice(0, colonIndex).trim();
-      const value = rule.slice(colonIndex + 1).trim();
-      if (key && value) {
-        let camelKey = key.replace(/-([a-z])/g, g => g[1].toUpperCase());
-        // Handle ms prefixes
-        if (camelKey.startsWith('ms')) {
-          camelKey = 'ms' + camelKey.charAt(2).toUpperCase() + camelKey.slice(3);
-        }
-        styles[camelKey] = value;
-      }
+  let currentKey = '';
+  let currentValue = '';
+  let inParens = 0;
+  let inQuotes = false;
+  let quoteChar = '';
+  let isKey = true;
+
+  for (let i = 0; i < styleStr.length; i++) {
+    const char = styleStr[i];
+    
+    if (inQuotes) {
+      if (char === quoteChar) inQuotes = false;
+      if (isKey) currentKey += char; else currentValue += char;
+      continue;
     }
+    
+    if (char === '"' || char === "'") {
+      inQuotes = true;
+      quoteChar = char;
+      if (isKey) currentKey += char; else currentValue += char;
+      continue;
+    }
+    
+    if (char === '(') inParens++;
+    if (char === ')') inParens = Math.max(0, inParens - 1);
+    
+    if (char === ':' && isKey && inParens === 0) {
+      isKey = false;
+      continue;
+    }
+    
+    if (char === ';' && inParens === 0) {
+      if (currentKey.trim() && currentValue.trim()) {
+        addStyle(styles, currentKey.trim(), currentValue.trim());
+      }
+      currentKey = '';
+      currentValue = '';
+      isKey = true;
+      continue;
+    }
+    
+    if (isKey) currentKey += char; else currentValue += char;
   }
+  
+  if (currentKey.trim() && currentValue.trim()) {
+    addStyle(styles, currentKey.trim(), currentValue.trim());
+  }
+  
   return styles;
+}
+
+function addStyle(styles, key, value) {
+  if (key.startsWith('--')) {
+    styles[key] = value;
+  } else {
+    let camelKey = key.replace(/-([a-z])/g, g => g[1].toUpperCase());
+    if (camelKey.startsWith('ms')) {
+      camelKey = 'ms' + camelKey.charAt(2).toUpperCase() + camelKey.slice(3);
+    }
+    styles[camelKey] = value;
+  }
 }
 
 export function htmlToJsx(html) {
@@ -106,8 +150,13 @@ export function htmlToJsx(html) {
         // Convert dash-case data attributes to camelCase? No, data-* and aria-* should remain hyphenated in React
         if (jsxKey.startsWith('data-') || jsxKey.startsWith('aria-')) {
           // Keep as is
-        } else if (jsxKey.includes('-')) {
-          jsxKey = jsxKey.replace(/-([a-z])/g, g => g[1].toUpperCase());
+        } else {
+          if (jsxKey.includes('-')) {
+            jsxKey = jsxKey.replace(/-([a-z])/g, g => g[1].toUpperCase());
+          }
+          if (jsxKey.includes(':')) {
+            jsxKey = jsxKey.replace(/:([a-z])/g, g => g[1].toUpperCase());
+          }
         }
 
         if (lowerKey === 'style') {

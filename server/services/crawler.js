@@ -23,6 +23,7 @@ export class Crawler {
     this.maxDepth = this.options.depth || 9999;
     this.maxPages = this.options.maxPages || 500;
     this.rateLimitMs = this.options.rateLimitMs || 1000;
+    this.waitPeriod = this.options.waitPeriod || 15000;
     this.respectRobots = this.options.respectRobots !== false;
     
     this.assetStore = new AssetStore(this.cloneId, this.cloneDir);
@@ -159,7 +160,11 @@ export class Crawler {
         }
       });
 
-      const response = await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+      const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 }).catch(async (e) => {
+        // Fallback to load if networkidle times out
+        console.log(`Initial networkidle failed for ${url}, falling back to load`);
+        return await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+      });
       if (!response || !response.ok()) {
         throw new Error(`Failed to load page: ${response ? response.status() : 'Unknown error'}`);
       }
@@ -187,8 +192,17 @@ export class Crawler {
         });
       });
       
-      // Wait a bit more for lazy-loaded assets to trigger network requests
-      await page.waitForTimeout(1000);
+      // Wait for lazy-loaded assets and React Server Components to fully hydrate
+      try {
+        // networkidle checks if there are no more than 2 network connections for at least 500 ms
+        await page.waitForLoadState('networkidle', { timeout: this.waitPeriod });
+      } catch (e) {
+        console.log(`Final networkidle timeout on ${url}, falling back to explicit wait`);
+        // If the site has long-polling or continuous streams (preventing network idle),
+        // fallback to waiting to ensure components have time to download
+        await page.waitForTimeout(this.waitPeriod);
+      }
+      await page.waitForTimeout(2000); // Small buffer for React to update DOM after network idle
 
       // Extract dynamic CSS from CSSOM
       const dynamicCss = await page.evaluate(() => {
