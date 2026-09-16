@@ -10,6 +10,24 @@ const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clonesBaseDir = path.join(__dirname, '..', '..', 'clones');
 
+// Custom MIME types for 3D/data assets that Express doesn't know about
+const CUSTOM_MIME_TYPES = {
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.obj': 'text/plain',
+  '.fbx': 'application/octet-stream',
+  '.wasm': 'application/wasm',
+  '.hdr': 'application/octet-stream',
+  '.exr': 'application/octet-stream',
+  '.ktx2': 'image/ktx2',
+  '.basis': 'application/octet-stream',
+  '.draco': 'application/octet-stream',
+  '.bin': 'application/octet-stream',
+  '.glsl': 'text/plain',
+  '.vert': 'text/plain',
+  '.frag': 'text/plain',
+};
+
 // Serve static files for a clone
 router.get('/:id/*path', async (req, res) => {
   const cloneId = req.params.id;
@@ -66,6 +84,10 @@ router.get('/:id/*path', async (req, res) => {
         res.set('Content-Type', 'text/html; charset=utf-8');
         return res.send(html);
       } else {
+        const fileExt = path.extname(targetPath).toLowerCase();
+        if (CUSTOM_MIME_TYPES[fileExt]) {
+          res.set('Content-Type', CUSTOM_MIME_TYPES[fileExt]);
+        }
         return res.sendFile(targetPath);
       }
     } else {

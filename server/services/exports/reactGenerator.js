@@ -11,7 +11,8 @@ import {
   rewriteLinksToRoutes,
   STATIC_INTERACTIVITY_SCRIPT,
   UNIVERSAL_STUBS_SCRIPT,
-  generateRouteNavigatorScript
+  generateRouteNavigatorScript,
+  generateFetchRewriteScript
 } from './exportUtils.js';
 import { htmlToJsx } from './htmlToJsx.js';
 
@@ -208,6 +209,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   const bodyAttrs = entryBodyClass ? ` class="${entryBodyClass.replace(/"/g, '&quot;')}"` : '';
 
   const routeNavigatorHTML = generateRouteNavigatorScript(routes, 'spa');
+  const fetchRewriteScript = generateFetchRewriteScript(reactPathMapping);
 
   fs.writeFileSync(path.join(outputDir, 'index.html'), `<!DOCTYPE html>
 <html ${htmlAttrs}>
@@ -216,6 +218,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${cloneRecord.domain}</title>
     ${UNIVERSAL_STUBS_SCRIPT}
+    ${fetchRewriteScript}
   </head>
   <body${bodyAttrs}>
     <div id="root"></div>

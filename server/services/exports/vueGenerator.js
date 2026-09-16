@@ -10,7 +10,8 @@ import {
   rewriteLinksToRoutes,
   STATIC_INTERACTIVITY_SCRIPT,
   UNIVERSAL_STUBS_SCRIPT,
-  generateRouteNavigatorScript
+  generateRouteNavigatorScript,
+  generateFetchRewriteScript
 } from './exportUtils.js';
 
 export async function generate(sourceDir, outputDir, cloneRecord, pages, assets) {
@@ -140,6 +141,8 @@ app.mount('#app')
 
   // 7. Generate index.html
   const routeNavigatorHTML = generateRouteNavigatorScript(routes, 'spa');
+  const fetchRewriteScript = generateFetchRewriteScript(vuePathMapping);
+  
   fs.writeFileSync(path.join(outputDir, 'index.html'), `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -147,6 +150,7 @@ app.mount('#app')
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${cloneRecord.domain}</title>
     ${UNIVERSAL_STUBS_SCRIPT}
+    ${fetchRewriteScript}
   </head>
   <body>
     <div id="app"></div>

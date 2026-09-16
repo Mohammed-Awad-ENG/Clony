@@ -10,7 +10,9 @@ import {
   rewriteLinksToRoutes,
   STATIC_INTERACTIVITY_SCRIPT,
   UNIVERSAL_STUBS_SCRIPT,
-  generateRouteNavigatorScript
+  generateRouteNavigatorScript,
+  generateFetchRewriteScript,
+  generateRoutes
 } from './exportUtils.js';
 import { htmlToJsx } from './htmlToJsx.js';
 
@@ -29,6 +31,8 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
   for (const [key, value] of pathMapping) {
     nextPathMapping.set(key, '/' + value.replace(/\\/g, '/'));
   }
+
+  const routes = generateRoutes(pages);
 
   // 2. Merge CSS
   const mergedCss = mergeCss(sourceDir, assets, pages, pathMapping);
@@ -104,6 +108,7 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
   // 4. Generate layout.jsx
   const rawScript = STATIC_INTERACTIVITY_SCRIPT.replace(/<script>|<\/script>/g, '').trim();
   const routeNavigatorHTML = generateRouteNavigatorScript(routes, 'spa');
+  const fetchRewriteRaw = generateFetchRewriteScript(nextPathMapping).replace(/<script>|<\/script>/gi, '').trim().replace(/`/g, '\\`').replace(/\$/g, '\\$');
   
   const layoutCode = `import './globals.css'
 
@@ -117,6 +122,7 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <script dangerouslySetInnerHTML={{ __html: \`${UNIVERSAL_STUBS_SCRIPT.replace(/<script>|<\/script>/gi, '').trim().replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />
+        <script dangerouslySetInnerHTML={{ __html: \`${fetchRewriteRaw}\` }} />
         {children}
         <script dangerouslySetInnerHTML={{ __html: \`${rawScript.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />
         <div dangerouslySetInnerHTML={{ __html: \`${routeNavigatorHTML.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />

@@ -67,17 +67,37 @@ export function getAssetCategory(asset) {
   const type = (asset.content_type || '').toLowerCase();
   const ext = path.extname(asset.local_path).toLowerCase();
 
-  if (type.includes('image') || ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico'].includes(ext)) {
+  if (type.includes('image') || ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.avif'].includes(ext)) {
     return 'images';
   }
   if (type.includes('css') || ext === '.css') {
     return 'css';
   }
-  if (type.includes('javascript') || type.includes('ecmascript') || ext === '.js') {
+  if (type.includes('javascript') || type.includes('ecmascript') || ext === '.js' || ext === '.mjs') {
     return 'js';
   }
   if (type.includes('font') || ['.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext)) {
     return 'fonts';
+  }
+  // 3D models
+  if (type.includes('model') || ['.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.ply', '.usdz'].includes(ext)) {
+    return 'models';
+  }
+  // Binary data (WASM, Draco decoders, bin buffers)
+  if (type.includes('wasm') || type.includes('octet-stream') || ['.wasm', '.bin', '.draco', '.basis', '.ktx', '.ktx2', '.dds'].includes(ext)) {
+    return 'data';
+  }
+  // HDR / environment maps
+  if (['.hdr', '.exr'].includes(ext)) {
+    return 'textures';
+  }
+  // Audio
+  if (type.includes('audio') || ['.mp3', '.ogg', '.wav', '.aac'].includes(ext)) {
+    return 'audio';
+  }
+  // Shaders
+  if (['.glsl', '.vert', '.frag', '.hlsl', '.wgsl'].includes(ext)) {
+    return 'shaders';
   }
   return 'assets';
 }
@@ -90,18 +110,40 @@ export function copyAssetsOrganized(sourceDir, outputDir, assets, renameMap) {
   const pathMapping = new Map();
 
   for (const asset of assets) {
-    const oldLocalPath = asset.local_path; // e.g. _assets/12345.png
+    const oldLocalPath = asset.local_path; // e.g. _assets/12345.png or _assets/_data/models/car/scene.gltf
     const hashName = path.basename(oldLocalPath);
     const newName = renameMap.get(hashName) || hashName;
     const category = getAssetCategory(asset);
     
-    const newRelativePath = `${category}/${newName}`;
+    // For path-preserved data assets, maintain the full subdirectory structure
+    // so inter-file references (e.g., .gltf -> ./textures/base.png) remain valid
+    const DATA_CATEGORIES = new Set(['models', 'data', 'textures', 'audio', 'shaders']);
+    let newRelativePath;
+
+    if (DATA_CATEGORIES.has(category) && oldLocalPath.includes('_data/')) {
+      // Extract everything after _data/ (e.g. "models/car/scene.gltf")
+      const dataSubPath = oldLocalPath.split('_data/')[1];
+      newRelativePath = dataSubPath;
+    } else {
+      newRelativePath = `${category}/${newName}`;
+    }
+
     pathMapping.set(oldLocalPath, newRelativePath);
 
     // Also support absolute paths that start with /_assets
     pathMapping.set('/' + oldLocalPath, '/' + newRelativePath);
     // And bare paths
     pathMapping.set(hashName, newRelativePath);
+
+    // For data assets, also register the original URL pathname as a mapping key
+    // so JS fetch() calls using the original path can resolve to the new local path
+    if (asset.original_url) {
+      try {
+        const urlPath = new URL(asset.original_url).pathname;
+        pathMapping.set(urlPath.replace(/^\//, ''), newRelativePath);
+        pathMapping.set(urlPath, '/' + newRelativePath);
+      } catch (e) {}
+    }
 
     const sourcePath = path.join(sourceDir, oldLocalPath);
     const targetPath = path.join(outputDir, newRelativePath);
@@ -671,8 +713,17 @@ export const UNIVERSAL_STUBS_SCRIPT = `
         e.message.includes('_DumpException') || 
         e.message.includes('google is not defined') ||
         e.message.includes('google.lx') ||
-        e.message.includes('Mismatching childNodes')
+        e.message.includes('Mismatching childNodes') ||
+        e.message.includes('ChunkLoadError') ||
+        e.message.includes('Loading chunk') ||
+        e.message.includes('Failed to fetch dynamically imported module') ||
+        e.message.includes('WebGL') ||
+        e.message.includes('DRACO') ||
+        e.message.includes('GLTFLoader') ||
+        e.message.includes('Could not load') ||
+        e.message.includes('THREE')
       )) {
+        console.warn("Clony: Suppressed error ->", e.message);
         e.preventDefault();
       }
     }, true);
@@ -917,6 +968,80 @@ export function mergeCss(sourceDir, assets, htmlPages, pathMapping, options = {}
   }
 
   return mergedCss;
+}
+
+/**
+ * Generates a runtime fetch/XHR/Image interceptor script that rewrites
+ * asset URLs from their original paths to the new exported paths.
+ * Covers fetch(), XMLHttpRequest, and new Image().src for maximum compatibility
+ * with Three.js loaders (GLTFLoader uses fetch, TextureLoader uses Image, legacy loaders use XHR).
+ */
+export function generateFetchRewriteScript(pathMapping) {
+  // Build a mapping of original URL paths → new local paths (only for data/model assets)
+  const DATA_EXTENSIONS = new Set([
+    '.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.ply', '.usdz',
+    '.bin', '.wasm', '.hdr', '.exr', '.ktx', '.ktx2', '.basis', '.dds',
+    '.draco', '.json', '.mp3', '.ogg', '.wav', '.aac',
+    '.glsl', '.vert', '.frag',
+  ]);
+
+  const fetchMap = {};
+  for (const [oldPath, newPath] of pathMapping.entries()) {
+    const ext = path.extname(oldPath).toLowerCase();
+    if (DATA_EXTENSIONS.has(ext)) {
+      fetchMap[oldPath] = typeof newPath === 'string' ? newPath : String(newPath);
+    }
+  }
+
+  if (Object.keys(fetchMap).length === 0) return '';
+
+  return `<script>
+  /* Clony: Runtime asset path rewriter for 3D models and data assets */
+  (function() {
+    var __clonyAssetMap = ${JSON.stringify(fetchMap)};
+
+    function __clonyResolve(url) {
+      if (__clonyAssetMap[url]) return __clonyAssetMap[url];
+      try {
+        var pathname = new URL(url, location.origin).pathname;
+        if (__clonyAssetMap[pathname]) return __clonyAssetMap[pathname];
+        // Try without leading slash
+        var bare = pathname.replace(/^\\//, '');
+        if (__clonyAssetMap[bare]) return __clonyAssetMap[bare];
+      } catch(e) {}
+      return null;
+    }
+
+    // 1. Intercept fetch()
+    var __origFetch = window.fetch;
+    window.fetch = function(input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+      var resolved = __clonyResolve(url);
+      if (resolved) return __origFetch.call(this, resolved, init);
+      return __origFetch.call(this, input, init);
+    };
+
+    // 2. Intercept XMLHttpRequest.open()
+    var __origXHROpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      var resolved = __clonyResolve(url);
+      if (resolved) arguments[1] = resolved;
+      return __origXHROpen.apply(this, arguments);
+    };
+
+    // 3. Intercept new Image().src assignment
+    var __origImageDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    if (__origImageDescriptor && __origImageDescriptor.set) {
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        set: function(value) {
+          var resolved = __clonyResolve(value);
+          __origImageDescriptor.set.call(this, resolved || value);
+        },
+        get: __origImageDescriptor.get
+      });
+    }
+  })();
+  </script>`;
 }
 
 /**

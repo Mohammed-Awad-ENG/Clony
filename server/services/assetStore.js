@@ -8,6 +8,13 @@ import { ensureDirSync } from '../utils/fileUtils.js';
 
 const MAX_ASSET_SIZE = 50 * 1024 * 1024; // 50MB
 
+// Extensions that should preserve their original URL path structure for inter-file references
+const PATH_PRESERVE_EXTENSIONS = new Set([
+  '.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.ply', '.usdz',
+  '.bin', '.wasm', '.hdr', '.exr', '.ktx', '.ktx2', '.basis', '.dds',
+  '.draco', '.glsl', '.vert', '.frag',
+]);
+
 export class AssetStore {
   constructor(cloneId, cloneDir) {
     this.cloneId = cloneId;
@@ -54,9 +61,26 @@ export class AssetStore {
       ensureDirSync(path.join(this.cloneDir, prefix));
     }
 
-    const filename = `${hash}${ext}`;
-    const localPath = path.join(prefix, filename);
-    const absolutePath = path.join(this.cloneDir, localPath);
+    let localPath;
+    let absolutePath;
+
+    // Preserve original URL path structure for data assets (3D models, WASM, etc.)
+    // so that inter-file references (e.g., .gltf -> ./textures/base.png) remain valid
+    const urlObj = new URL(url);
+    const urlPathname = urlObj.pathname;
+    const urlExt = path.extname(urlPathname).toLowerCase();
+
+    if (PATH_PRESERVE_EXTENSIONS.has(urlExt)) {
+      const preservedRelPath = path.join('_assets', '_data', urlPathname.replace(/^\//, ''));
+      const preservedDir = path.dirname(path.join(this.cloneDir, preservedRelPath));
+      ensureDirSync(preservedDir);
+      localPath = preservedRelPath;
+      absolutePath = path.join(this.cloneDir, preservedRelPath);
+    } else {
+      const filename = `${hash}${ext}`;
+      localPath = path.join(prefix, filename);
+      absolutePath = path.join(this.cloneDir, localPath);
+    }
 
     fs.writeFileSync(absolutePath, buffer);
 

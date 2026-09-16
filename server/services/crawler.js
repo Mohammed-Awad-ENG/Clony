@@ -11,6 +11,32 @@ import { normalize, isSameDomain } from '../utils/urlUtils.js';
 import { generateLocalPath } from '../utils/fileUtils.js';
 import db from '../db/database.js';
 
+// Data asset extensions to capture from fetch/xhr responses (3D models, WASM, shaders, etc.)
+const DATA_ASSET_EXTENSIONS = new Set([
+  '.glb', '.gltf', '.obj', '.fbx', '.dae', '.stl', '.ply', '.usdz',
+  '.bin', '.wasm', '.hdr', '.exr', '.ktx', '.ktx2', '.basis', '.dds',
+  '.draco', '.mp3', '.ogg', '.wav', '.aac',
+  '.glsl', '.vert', '.frag', '.hlsl', '.wgsl',
+]);
+
+const DATA_ASSET_CONTENT_TYPES = [
+  'model/', 'application/octet-stream', 'application/wasm',
+  'application/draco', 'audio/',
+];
+
+// URL patterns for fetch/xhr responses that are API calls (not data assets)
+const FETCH_SKIP_PATTERNS = [
+  /\/api\//i, /\/graphql/i, /\/auth\//i, /\/_next\/data\//i,
+  /\/wp-json\//i, /\/rest\/v/i, /\/v[0-9]+\//i,
+];
+
+// Patterns in URL path that suggest the JSON is 3D/scene-related (not an API response)
+const JSON_3D_PATH_PATTERNS = [
+  /\/models?\//i, /\/scenes?\//i, /\/animations?\//i, /\/meshes?\//i,
+  /\/geometry\//i, /\/textures?\//i, /\/materials?\//i, /\/environment\//i,
+  /\.scene\.json$/i, /\.manifest\.json$/i,
+];
+
 export class Crawler {
   constructor(cloneRecord, io) {
     this.cloneId = cloneRecord.id;
@@ -156,6 +182,38 @@ export class Crawler {
             }
           } catch (e) {
             // Can happen with redirects, CORS, etc.
+          }
+        } else if (['fetch', 'xhr'].includes(resourceType)) {
+          // Data asset capture for 3D models, WASM, textures, etc.
+          if (responseUrl.startsWith('data:')) return;
+          try {
+            const urlPath = new URL(responseUrl).pathname;
+            const ext = path.extname(urlPath).toLowerCase();
+            const contentType = (response.headers()['content-type'] || '').toLowerCase();
+            
+            // Skip known API endpoints
+            if (FETCH_SKIP_PATTERNS.some(p => p.test(responseUrl))) return;
+            
+            // Check extension match
+            const extMatch = DATA_ASSET_EXTENSIONS.has(ext);
+            
+            // Check content-type match
+            const typeMatch = DATA_ASSET_CONTENT_TYPES.some(t => contentType.includes(t));
+            
+            // Special handling for JSON: only capture if URL path suggests 3D/scene data
+            const isJson = ext === '.json' || contentType.includes('application/json');
+            const jsonIs3D = isJson && JSON_3D_PATH_PATTERNS.some(p => p.test(urlPath));
+            
+            if (extMatch || typeMatch || jsonIs3D) {
+              const buffer = await response.body();
+              const headers = response.headers();
+              const localAssetPath = await this.assetStore.processAsset(responseUrl, buffer, headers);
+              if (localAssetPath) {
+                this.urlMap.set(responseUrl, localAssetPath);
+              }
+            }
+          } catch (e) {
+            // Silently ignore — fetch responses can fail due to CORS, streaming, etc.
           }
         }
       });

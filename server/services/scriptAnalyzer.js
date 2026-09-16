@@ -2,7 +2,21 @@ import * as cheerio from 'cheerio';
 
 const KEEP_PATTERNS = [
   /jquery/i, /bootstrap/i, /swiper/i, /gsap/i, /aos/i, /lottie/i, /alpine/i,
-  /querySelector/, /classList/, /addEventListener/
+  /querySelector/, /classList/, /addEventListener/,
+  // 3D / WebGL / Canvas libraries
+  /three/i, /three\.module/i, /fiber/i, /r3f/i, /react-three/i,
+  /drei/i, /postprocessing/i, /troika/i,
+  /babylon/i, /babylonjs/i, /playcanvas/i, /aframe/i, /a-frame/i,
+  /cannon/i, /ammo/i, /rapier/i, /oimo/i,  // Physics engines
+  /WebGLRenderer/, /PerspectiveCamera/, /Scene\(\)/, /OrbitControls/,
+  /useFrame/, /useThree/, /useGLTF/, /useLoader/,
+  /GLTFLoader/, /DRACOLoader/, /TextureLoader/, /FBXLoader/, /OBJLoader/,
+  /requestAnimationFrame/, /getContext\(['"]webgl/,
+  /pixi/i, /konva/i, /fabric/i,  // 2D Canvas libraries
+  /phaser/i, /matter-js/i,  // Game engines
+  /shader/i, /glsl/i,  // Shader code
+  /spline/i, /splinetool/i,  // Spline 3D
+  /model-viewer/i,  // Google model-viewer
 ];
 
 const STRIP_PATTERNS = [
@@ -46,8 +60,8 @@ const STRIP_SRC_PATTERNS = [
   /\/xjs\//, /\/gen_204/, /\/client_204/, /\/log\?/,
   /\/httpservice\//, /gstatic\.com.*?\/xjs/,
   // SPA framework hydration scripts — these always crash in cloned previews
-  /\/_next\//, /\/_nuxt\//, /\/__next/,
-  /\/chunks\//, /\/webpack/, /\/static\/chunks\//,
+  /\/_next\/static\/chunks\//, /\/_nuxt\/.*\.js$/, /\/__next/,
+  /\/webpack\//, /\/static\/chunks\//,
   /\/static\/js\//, /\/static\/css\//,
   // Build tool manifests & runtime bootstraps
   /buildManifest/, /_ssgManifest/, /_buildManifest/,
@@ -73,14 +87,15 @@ export function analyzeAndProcessScripts(html) {
       }
     }
 
-    // Check inline content against strip patterns
-    if (STRIP_PATTERNS.some(pattern => pattern.test(content) || (src && pattern.test(src)))) {
-      $(el).remove();
+    // If it has keep patterns, leave it untouched (check BEFORE strip patterns,
+    // because 3D libraries like Three.js legitimately use fetch()/XMLHttpRequest)
+    if (KEEP_PATTERNS.some(pattern => pattern.test(content) || (src && pattern.test(src)))) {
       return;
     }
 
-    // If it has keep patterns, leave it untouched
-    if (KEEP_PATTERNS.some(pattern => pattern.test(content) || (src && pattern.test(src)))) {
+    // Check inline content against strip patterns
+    if (STRIP_PATTERNS.some(pattern => pattern.test(content) || (src && pattern.test(src)))) {
+      $(el).remove();
       return;
     }
 
@@ -90,9 +105,20 @@ export function analyzeAndProcessScripts(html) {
       const isExecutable = !type || /^(text|application)\/(javascript|ecmascript)$/i.test(type);
       
       if (type === 'module') {
+        // Only strip modules that don't match 3D/WebGL keep patterns
+        if (KEEP_PATTERNS.some(pattern => pattern.test(content))) {
+          return; // Preserve 3D/WebGL modules
+        }
         $(el).remove();
       } else if (isExecutable) {
         $(el).html(`try { ${content} } catch(e) { /* Clony: neutralized */ }`);
+      }
+    }
+
+    // Preserve external CDN scripts that match 3D/WebGL keep patterns
+    if (src && (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('//'))) {
+      if (KEEP_PATTERNS.some(pattern => pattern.test(src))) {
+        return; // Explicitly preserve known 3D/WebGL CDN scripts
       }
     }
 

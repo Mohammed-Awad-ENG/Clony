@@ -12,7 +12,8 @@ import {
   STATIC_INTERACTIVITY_SCRIPT,
   UNIVERSAL_STUBS_SCRIPT,
   generateRouteNavigatorScript,
-  generateRoutes
+  generateRoutes,
+  generateFetchRewriteScript
 } from './exportUtils.js';
 
 export async function generate(sourceDir, outputDir, cloneRecord, pages, assets) {
@@ -56,9 +57,11 @@ export async function generate(sourceDir, outputDir, cloneRecord, pages, assets)
     if (relativeCssPath === '') relativeCssPath = 'styles.css';
 
     const routeNavigatorHTML = generateRouteNavigatorScript(routes, 'html');
+    const fetchRewriteScript = generateFetchRewriteScript(pathMapping);
 
     // Inject our merged stylesheet, interactivity script, and navigator
     $('head').prepend(UNIVERSAL_STUBS_SCRIPT);
+    if (fetchRewriteScript) $('head').append(fetchRewriteScript);
     $('head').append(`\n  <link rel="stylesheet" href="${relativeCssPath}">\n`);
     $('body').append(STATIC_INTERACTIVITY_SCRIPT);
     $('body').append(routeNavigatorHTML);
