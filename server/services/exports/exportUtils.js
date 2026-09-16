@@ -398,6 +398,157 @@ export const STATIC_INTERACTIVITY_SCRIPT = `
     document.addEventListener('click', function(e) {
       let target = e.target;
       
+      // --- A. TAB INTERACTIVITY ---
+      let tabTarget = target.closest('[role="tab"], [data-part="trigger"][data-scope="tabs"]');
+      if (tabTarget) {
+        let tabList = tabTarget.closest('[role="tablist"], [data-part="list"], [data-scope="tabs"]');
+        if (tabList) {
+          // 1. Deactivate all tabs in this list
+          let allTabs = tabList.querySelectorAll('[role="tab"], [data-part="trigger"][data-scope="tabs"]');
+          allTabs.forEach(t => {
+            t.setAttribute('aria-selected', 'false');
+            t.setAttribute('data-state', 'inactive');
+            t.removeAttribute('data-selected');
+          });
+          
+          // 2. Activate clicked tab
+          tabTarget.setAttribute('aria-selected', 'true');
+          tabTarget.setAttribute('data-state', 'active');
+          tabTarget.setAttribute('data-selected', '');
+          
+          // 3. Find the corresponding panel
+          let controls = tabTarget.getAttribute('aria-controls');
+          let dataValue = tabTarget.getAttribute('data-value');
+          let tabRoot = tabTarget.closest('[data-scope="tabs"][data-part="root"]') || document;
+          
+          let targetPanel = null;
+          let allPanels = [];
+          
+          if (controls) {
+            targetPanel = document.getElementById(controls);
+            if (targetPanel) {
+              allPanels = Array.from(targetPanel.parentElement.children).filter(el => el.getAttribute('role') === 'tabpanel' || el.hasAttribute('data-scope'));
+            }
+          } else if (dataValue && tabRoot !== document) {
+            allPanels = Array.from(tabRoot.querySelectorAll('[role="tabpanel"], [data-part="content"]'));
+            targetPanel = allPanels.find(p => p.getAttribute('data-value') === dataValue);
+          }
+          
+          if (!targetPanel && tabRoot !== document) {
+            // Fallback for generic tabs
+            allPanels = Array.from(tabRoot.querySelectorAll('[role="tabpanel"]'));
+            let tabIndex = Array.from(allTabs).indexOf(tabTarget);
+            if (tabIndex >= 0 && tabIndex < allPanels.length) {
+              targetPanel = allPanels[tabIndex];
+            }
+          }
+
+          // 4. Update panels
+          allPanels.forEach(p => {
+            p.setAttribute('data-state', 'inactive');
+            p.setAttribute('hidden', 'true');
+            p.style.display = 'none';
+          });
+          
+          if (targetPanel) {
+            targetPanel.setAttribute('data-state', 'active');
+            targetPanel.removeAttribute('hidden');
+            targetPanel.style.display = '';
+          }
+          
+          e.preventDefault();
+          return; // Stop processing further generic interactions
+        }
+      }
+
+      // --- B. ACCORDION / DISCLOSURE INTERACTIVITY ---
+      let accordionBtn = target.closest('[aria-expanded]');
+      if (accordionBtn) {
+        // Toggle the expanded state
+        let isExpanded = accordionBtn.getAttribute('aria-expanded') === 'true';
+        let newState = !isExpanded;
+        accordionBtn.setAttribute('aria-expanded', String(newState));
+        
+        let stateStr = newState ? 'open' : 'closed';
+        if (accordionBtn.hasAttribute('data-state')) {
+           accordionBtn.setAttribute('data-state', stateStr);
+        }
+        
+        let controlsId = accordionBtn.getAttribute('aria-controls');
+        if (controlsId) {
+          let controlledRegion = document.getElementById(controlsId);
+          if (controlledRegion) {
+            if (controlledRegion.hasAttribute('data-state')) {
+              controlledRegion.setAttribute('data-state', stateStr);
+            }
+            if (newState) {
+              controlledRegion.removeAttribute('hidden');
+              controlledRegion.style.display = '';
+            } else {
+              controlledRegion.setAttribute('hidden', 'true');
+              controlledRegion.style.display = 'none';
+            }
+          }
+        } else {
+           // Radix UI / Ark UI often put the content as a sibling or in a known wrapper
+           let nextEl = accordionBtn.nextElementSibling;
+           if (nextEl && (nextEl.getAttribute('role') === 'region' || nextEl.hasAttribute('data-state'))) {
+              nextEl.setAttribute('data-state', stateStr);
+              if (newState) {
+                nextEl.removeAttribute('hidden');
+                nextEl.style.display = '';
+              } else {
+                nextEl.setAttribute('hidden', 'true');
+                nextEl.style.display = 'none';
+              }
+           }
+        }
+        
+        e.preventDefault();
+        return;
+      }
+
+      // --- C. DROPDOWN / MENU (CLICK OUTSIDE) ---
+      let dropdownTrigger = target.closest('[aria-haspopup="true"], [data-part="trigger"][data-scope="menu"]');
+      if (dropdownTrigger) {
+         let isExpanded = dropdownTrigger.getAttribute('aria-expanded') === 'true';
+         let newState = !isExpanded;
+         dropdownTrigger.setAttribute('aria-expanded', String(newState));
+         let stateStr = newState ? 'open' : 'closed';
+         if (dropdownTrigger.hasAttribute('data-state')) {
+            dropdownTrigger.setAttribute('data-state', stateStr);
+         }
+         let controlsId = dropdownTrigger.getAttribute('aria-controls');
+         let menu = controlsId ? document.getElementById(controlsId) : dropdownTrigger.nextElementSibling;
+         
+         if (menu && (menu.getAttribute('role') === 'menu' || menu.hasAttribute('data-state'))) {
+            menu.setAttribute('data-state', stateStr);
+            if (newState) {
+              menu.removeAttribute('hidden');
+              menu.style.display = '';
+            } else {
+              menu.setAttribute('hidden', 'true');
+              menu.style.display = 'none';
+            }
+         }
+      } else {
+         // Click outside handler for dropdowns - close all open menus
+         let openMenus = document.querySelectorAll('[role="menu"][data-state="open"], [data-scope="menu"][data-part="content"][data-state="open"]');
+         openMenus.forEach(menu => {
+            if (!menu.contains(e.target)) {
+               menu.setAttribute('data-state', 'closed');
+               menu.setAttribute('hidden', 'true');
+               menu.style.display = 'none';
+               let trigger = document.querySelector('[aria-controls="' + menu.id + '"]');
+               if (trigger) {
+                  trigger.setAttribute('aria-expanded', 'false');
+                  trigger.setAttribute('data-state', 'closed');
+               }
+            }
+         });
+      }
+
+      // --- D. MODAL / BACKDROP DISMISSAL (Existing logic) ---
       // 1. Backdrop click detection
       if (target && target !== document.body && target.tagName !== 'HTML') {
         const style = window.getComputedStyle(target);

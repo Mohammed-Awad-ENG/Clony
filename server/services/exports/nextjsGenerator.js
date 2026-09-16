@@ -116,10 +116,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <script dangerouslySetInnerHTML={{ __html: \`${UNIVERSAL_STUBS_SCRIPT.replace(/<script>|<\/script>/gi, '').trim().replace(/`/g, '\\`').replace(/\\$/g, '\\\\$')}\` }} />
+        <script dangerouslySetInnerHTML={{ __html: \`${UNIVERSAL_STUBS_SCRIPT.replace(/<script>|<\/script>/gi, '').trim().replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />
         {children}
-        <script dangerouslySetInnerHTML={{ __html: \`${rawScript.replace(/`/g, '\\`').replace(/\\$/g, '\\\\$')}\` }} />
-        <div dangerouslySetInnerHTML={{ __html: \`${routeNavigatorHTML.replace(/`/g, '\\`').replace(/\\$/g, '\\\\$')}\` }} />
+        <script dangerouslySetInnerHTML={{ __html: \`${rawScript.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />
+        <div dangerouslySetInnerHTML={{ __html: \`${routeNavigatorHTML.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />
       </body>
     </html>
   )
